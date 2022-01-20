@@ -1,0 +1,368 @@
+// Initialize modules
+
+angular.module('wagnerr',[]);
+angular.module('wagnerr.dashboard',[]);
+angular.module('wagnerr.surveys',[]);
+angular.module('jaggerr.common',[]);
+/**
+ * @fileOverview Bunny Engine - Wagnerr module
+ *
+ * @author Santiago Aguilar
+ *
+ */
+(function(angular) {
+    'use strict';
+
+    angular.module('wagnerr', [
+        'ngCookies',
+        'ngResource',
+        'ngSanitize',
+        //VB modules
+        'wagnerr.dashboard',
+        'wagnerr.surveys',
+        // Wagnerr "resolve" and jaggerr.common
+        'wagnerr.common'
+    ]);
+
+})(angular);
+
+(function(angular) {
+    var common = angular.module('wagnerr.common', [
+        'jaggerr.common'
+    ]);
+    common.config(['$locationProvider','$urlRouterProvider', function($locationProvider, $urlRouterProvider) {
+        $urlRouterProvider.deferIntercept();
+        $locationProvider.hashPrefix('');
+        $locationProvider.html5Mode({ enabled: true, requireBase: false, rewriteLinks: false });
+    }]);
+    function setRootScope($rootScope, $window) {
+        $rootScope.currency = $window.getUserCurrency();
+        angular.element('.currencySelector.global').off('change.wagnerrAng').on('change.wagnerrAng', function(e) {
+            $rootScope.currency = $window.getUserCurrency();
+            $rootScope.$digest();
+        });
+    }
+
+    function beDigest() {
+        var element = angular.element('body');
+        if (element.length) {
+            element.injector().invoke(['$compile', function($compile) {
+                var directives = 'be-bunny-pro-id, be-rate-stars, be-money-render, be-price-render, be-referral-triggers, be-sign-in-sign-up-form';
+                angular.element(directives).each(function() {
+                    var element = angular.element(this);
+                    var $scope = element.scope();
+                    if ($scope) {
+                        $compile(element)($scope);
+                        $scope.$digest();
+                    }
+                });
+            }]);
+        }
+    }
+
+    function mediaRenderZindex() {
+        // angular.element('.media-render .toolbar').each(function(index, element) {
+        //     angular.element(element).attr('style', 'z-index:' + (50));
+        // });
+    }
+
+    /* globals _ */
+    function run($rootScope, $window, L10n) {
+        mediaRenderZindex();
+        setRootScope($rootScope, $window);
+        angular.element(document).ajaxComplete(beDigest); //digest on ajax
+        angular.element(document).on('beDigest', beDigest); //digest when 'beDigest' is triggered
+    }
+
+    // Deferred bootstrapping to fetch language before load wagnerr app
+    function startModule() {
+
+        common.run(run);
+        common.value('langCatalog', null);
+
+        var lang = !angular.isUndefined(window.siteLocale) ? window.siteLocale : 'en';
+
+        if (window.siteApp && lang !== 'en') {
+
+            fetchLanguage(lang, window.beBaseUrl).then(
+                function(response) {
+                    common.value('langCatalog', response.data[lang]);
+                    bootstrapApp();
+                },
+                function(err) {
+                    console.log(err);
+                }
+            );
+        } else {
+          bootstrapApp();
+        }
+    }
+
+    function fetchLanguage(lang, beBaseUrl) {
+
+        var initInjector = angular.injector(["ng"]),
+            $http = initInjector.get("$http"),
+            $q = initInjector.get("$q");
+        var baseUrl = beBaseUrl || '';
+        
+        const cdnDomain = location.host.includes('local.') || location.host.includes('dev.') || location.host.includes('release.') ? 'dx7dafuy8g98k.cloudfront.net' : 'd2kcd4y6vw7b6c.cloudfront.net';
+        const remoteTranslationFile = `https://${cdnDomain}/l10n-manager/jaggerr/${lang}-default.json`;        
+        return $http.get(remoteTranslationFile);
+    }
+
+    function bootstrapApp() {
+        angular.element(document).ready(function() {
+            angular.bootstrap(angular.element("body")[0], [window.siteApp]);
+
+            angular.element(document).trigger("app-ready");
+        });
+    }
+
+    startModule();
+
+})(angular);
+/**
+* @fileOverview Bunny Engine - Dashboard module
+*
+* @author Santiago Aguilar
+*
+*/
+(function(angular){
+	'use strict';
+	angular.module('wagnerr.dashboard')
+    .config(['$httpProvider', '$locationProvider', function($httpProvider, $locationProvider) {
+        $locationProvider.hashPrefix('');
+        $httpProvider.defaults.headers.common["X-Requested-With"] = 'XMLHttpRequest';
+    }]);
+  }
+)(angular);/**
+* @fileOverview client Controller
+*
+* @description This controller makes the following operations:
+*
+* @author
+*
+*/
+(function(angular,jQuery){
+	'use strict';
+	function clientDashboard($scope, $http, $sce,user_id,projectsService,$timeout) {
+		$scope.dashboard = {};
+		$scope.dashboard.searching = false;
+		$scope.dashboard.search_enabled = false;
+		$scope.dashboard.query_class = 'span3 input-inline search-input';
+		$scope.dashboard.default_query = '';
+		$scope.dashboard.query = $scope.dashboard.default_query;
+		$scope.dashboard.projects = [];
+		$scope.draft = false;
+		$scope.showArchived=false;
+		$scope.firstLoad = true;
+		$scope.displayAll = false;
+		$scope.firstSearch = true;
+		$scope.style = function(item) {
+			return { 'direction': item.direction };
+		};
+
+		$scope.search = function() {
+			$scope.dashboard.search_enabled = false;
+			$scope.dashboard.searching = true;
+			var query = '';
+			$scope.firstSearch = false;
+			if(typeof user_id !== 'undefined' || user_id !== false){
+				query= '/users/ajax_posted_projects?u='+user_id+'&q=' + $scope.dashboard.query;
+			}else{
+				query = '/users/ajax_posted_projects?q=' + $scope.dashboard.query;
+			}
+			projectsService.viewProjects(query).then(searchSuccess,searchfail);
+		};
+
+		$scope.clickQueryBox = function() {
+			if($scope.dashboard.query == $scope.dashboard.default_query) {
+				$scope.dashboard.query = '';
+				$scope.dashboard.query_class = 'span3 input-inline';
+				$scope.dashboard.search_enabled = true;
+			}
+		};
+
+		$scope.keyPressed = function(event) {
+			if(event.keyCode == 13) {
+				$scope.search();
+			}
+		};
+
+		$scope.to_trusted = function(html_code) {
+			if(!angular.isString(html_code)){
+                html_code = '';
+            }
+			return $sce.trustAsHtml(html_code);
+		};
+
+		$scope.discardDraft = function(project){
+			$scope.draft = project;
+		};
+
+		$scope.archiveHandler = function (project,archive) {
+			projectsService.archiveProject(project.id,archive).then(archiveSuccess(project),archiveFail);
+		};
+
+		//
+		var dashboard = {};
+		dashboard.init = function (){
+			get_Projects();
+		};
+		dashboard.init();
+		//
+		function get_Projects (){
+			var query = '';
+			query += angular.isDefined(user_id)?'?u='+user_id:'';
+			query += '&q=' + $scope.dashboard.query;
+			projectsService.viewProjects(query).then(searchSuccess,searchfail);
+		}
+		function searchSuccess (projects) {
+			$scope.dashboard.projects = projects;
+			$scope.dashboard.searching = false;
+			$scope.firstLoad = false;
+			$scope.dashboard.search_enabled = true;
+			$scope.displayAll = $scope.dashboard.query !== ''? true : false;
+			$timeout(function () {
+				jQuery('[data-toggle="tooltip"]').tooltip({'placement': 'left'});
+			},500);
+		}
+		function searchfail (data) {}
+		function archiveSuccess(project){
+			return function(data){
+				project.archived = parseInt(data.Project.archived)?true:false;
+				project.tags = data.Project.tags;
+			};
+		}
+		function archiveFail(data){}
+	}
+	angular.module('wagnerr.dashboard')
+	.controller('clientDashboard', clientDashboard);
+})(angular,jQuery);
+/**
+* Constants for communication module
+*/
+(function (angular) {
+    'use strict';
+   /**
+     * Constants
+     */
+    // SERVICES URL FOR THREADS
+    var projectServices = {
+        VIEW_PROJECTS        : {method: 'GET',   path:'/users/ajax_posted_projects/'},
+        ARCHIVE_PROJECT      : {method: 'POST',  path:'/projects/ajax_archive_project/'}
+    };
+	function config(){
+
+	}
+	angular.module('wagnerr.dashboard')
+    .constant('projectsServices', projectServices);
+})(angular);
+/**
+* @fileOverview projects Services
+*
+* @description This services makes the following operations:
+*
+* @author Santiago Aguilar
+*
+*/
+(function (angular) {
+	'use strict';
+	function projectsService($http,$q,projectsServices){
+		return {
+			viewProjects:viewProjects,
+			archiveProject:archiveProject,
+		};
+		//*** public Functions
+		//** projects
+		function viewProjects (query) {
+			return request(
+				projectsServices.VIEW_PROJECTS.method,
+				projectsServices.VIEW_PROJECTS.path+query
+			);
+		}
+		function archiveProject (projectId,archived) {
+			var data = {'projectId':projectId,'archived':archived};
+			return request(
+				projectsServices.ARCHIVE_PROJECT.method,
+				projectsServices.ARCHIVE_PROJECT.path,
+				data
+			);
+		}
+
+		//*** private Functions
+		function request(method,url,data){
+			return ($http(config(method,url,data)).then(handleSuccess,handleError));
+		}
+		function config(method,url,data){
+			var env = window.location.origin ? window.location.origin : (window.location.protocol + "//" + window.location.hostname + (window.location.port ? ':' + window.location.port: ''));
+			return method === 'POST'?{method:method,url: env+url,data:data}:{method:method,url: env+url};
+		}
+		function handleError( response ) {
+			if (! angular.isObject( response.data ) || ! response.data.error) {
+				return( $q.reject( "An unknown error occurred." ) );
+			}
+			// Otherwise, use expected error message.
+			return( $q.reject( response.data.error ) );
+		}
+		function handleSuccess( response ) {
+			return( response.data );
+		}
+
+	}
+    angular.module('wagnerr.dashboard')
+    .factory('projectsService', projectsService);
+
+})(angular);
+/**
+* @fileOverview Bunny Engine - surveys module
+*
+* @author Santiago Aguilar
+*
+*/
+(function(angular){
+	'use strict';
+	angular.module('wagnerr.surveys');
+  }
+)(angular);/**
+* @fileOverview Survey Controller
+*
+* @description This controller makes the following operations:
+*
+* @author
+*
+*/
+(function(angular) {
+    'use strict';
+    function NPSSurveyCtrl ($scope) {
+        $scope.nps = {};
+        $scope.nps.rating = '';
+        $scope.nps.changes_to_make_above_6 = '';
+        $scope.nps.does_really_well = '';
+        $scope.nps.changes_to_make_below_6 = '';
+
+        $scope.nps.validate = function ($event) {
+            if (!$scope.nps.rating) {
+                $event.preventDefault();
+                return false;
+            }
+            var rating = $scope.nps.rating;
+            var aboveSix = $scope.nps.changes_to_make_above_6 && $scope.nps.changes_to_make_above_6.length > 0;
+            var doesWell = $scope.nps.does_really_well && $scope.nps.does_really_well.length > 0;
+            var belowSix = $scope.nps.changes_to_make_below_6 && $scope.nps.changes_to_make_below_6.length > 0;
+            switch (true) {
+                case ($scope.nps.rating < 6 && belowSix):
+                return true;
+                case ($scope.nps.rating > 6 && (aboveSix && doesWell)):
+                return true;
+                case ($scope.nps.rating == 10):
+                return true;
+                default:
+                $event.preventDefault();
+            }
+        };
+    }
+
+    angular.module('wagnerr.surveys')
+    .controller('NPSSurveyCtrl', NPSSurveyCtrl);
+})(angular);
